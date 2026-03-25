@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# JetBrains / PyCharm
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large datasets and archives
+data/
+*.zip
+*.7z
+*.tar
+*.tar.gz

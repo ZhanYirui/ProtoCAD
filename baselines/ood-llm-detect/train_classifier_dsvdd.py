@@ -38,7 +38,7 @@ from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_s
 
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
-    encoded_batch = tokenizer.batch_encode_plus(
+    encoded_batch = tokenizer(
         text,
         return_tensors="pt",
         max_length=512,
@@ -340,7 +340,7 @@ if __name__ == "__main__":
     parser.add_argument("--nu", type=float, default=0.1, help="DeepSVDD HP nu")
     parser.add_argument("--C", default=None, help="DeepSVDD HP C")
     parser.add_argument("--objective", type=str, default="one-class", help="one-class,soft-boundary")
-    parser.add_argument("--out_dim", type=int, default=128, help="output dim and dim of c")
+    parser.add_argument("--out_dim", type=int, default=768, help="output dim and dim of c")
 
     parser.add_argument("--dataset", type=str, default="deepfake", help="deepfake,OUTFOX,TuringBench,M4")
     parser.add_argument("--path", type=str, default="/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models")

@@ -42,7 +42,7 @@ np.random.seed(42)
 
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
-    encoded_batch = tokenizer.batch_encode_plus(
+    encoded_batch = tokenizer(
         text,
         return_tensors="pt",
         max_length=512,

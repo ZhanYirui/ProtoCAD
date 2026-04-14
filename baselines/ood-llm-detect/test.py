@@ -33,7 +33,7 @@ from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curv
 
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
-    encoded_batch = tokenizer.batch_encode_plus(
+    encoded_batch = tokenizer(
         text,
         return_tensors="pt",
         max_length=512,

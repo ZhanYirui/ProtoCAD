@@ -31,7 +31,7 @@ def infer(passages_dataloder,fabric,tokenizer,model):
     with torch.no_grad():
         for batch in passages_dataloder:
             text,label,write_model,write_model_set,ids= batch
-            encoded_batch = tokenizer.batch_encode_plus(
+            encoded_batch = tokenizer(
                         text,
                         return_tensors="pt",
                         max_length=512,

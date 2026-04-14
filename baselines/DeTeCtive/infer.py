@@ -40,7 +40,7 @@ def infer(opt):
     label_dict=load_pkl(os.path.join(opt.database_path,'label_dict.pkl'))
     
     text = opt.text
-    encoded_text = tokenizer.batch_encode_plus(
+    encoded_text = tokenizer(
                         [text],
                         return_tensors="pt",
                         max_length=512,

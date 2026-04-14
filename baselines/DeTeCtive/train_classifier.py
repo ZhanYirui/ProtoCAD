@@ -62,7 +62,7 @@ def process_top_ids_and_scores_AA(top_ids_and_scores, label_dict):
 def collate_fn(batch):
     # 首先使用default_collate处理大部分情况
     text,label,write_model,write_model_set = default_collate(batch)
-    encoded_batch = tokenizer.batch_encode_plus(
+    encoded_batch = tokenizer(
         text,
         return_tensors="pt",
         max_length=512,

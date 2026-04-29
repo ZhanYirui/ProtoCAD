@@ -45,21 +45,25 @@ def collate_fn(batch):
 
 
 def unwrap_model(model):
-    return getattr(model, "_forward_module", model)
+    raw_model = getattr(model, "_forward_module", model)
+    raw_model = getattr(raw_model, "module", raw_model)
+    return raw_model
 
 
 def gather_variable_length_1d(fabric, values, dtype):
     local_tensor = torch.tensor(values, device=fabric.device, dtype=dtype)
     local_length = torch.tensor([local_tensor.numel()], device=fabric.device, dtype=torch.long)
+
+    if fabric.world_size == 1:
+        return local_tensor.unsqueeze(0), local_length
+
     gathered_lengths = fabric.all_gather(local_length).flatten()
     max_length = int(gathered_lengths.max().item()) if gathered_lengths.numel() > 0 else 0
-
     if local_tensor.numel() < max_length:
         padding = torch.zeros(max_length - local_tensor.numel(), device=fabric.device, dtype=dtype)
         local_tensor = torch.cat([local_tensor, padding], dim=0)
 
-    gathered_tensor = fabric.all_gather(local_tensor)
-    return gathered_tensor, gathered_lengths
+    return fabric.all_gather(local_tensor), gathered_lengths
 
 
 def build_dataset(opt):
@@ -123,7 +127,7 @@ def evaluate_threshold(labels, distances, threshold):
 def estimate_and_broadcast_geometry(model, fabric, loader):
     raw_model = unwrap_model(model)
     if fabric.global_rank == 0:
-        raw_model.estimate_epoch_geometry(loader, fabric.device)
+        raw_model.estimate_epoch_geometry(loader, fabric.device, show_progress=True)
     if fabric.world_size > 1:
         fabric.barrier()
         torch.distributed.broadcast(raw_model.center, src=0)
@@ -211,7 +215,6 @@ def train(opt):
     model, optimizer = fabric.setup(model, optimizer)
 
     best_f1 = float("-inf")
-
     for epoch in range(opt.total_epoch):
         estimate_and_broadcast_geometry(model, fabric, geometry_loader)
 
@@ -220,7 +223,10 @@ def train(opt):
         pbar = enumerate(train_loader)
         if fabric.global_rank == 0:
             pbar = tqdm(pbar, total=len(train_loader))
-            print(("\n" + "%11s" * 9) % ("Epoch", "GPU_mem", "Loss", "AvgLoss", "L_shell", "L_m", "L_h", "L_con", "r_m"))
+            print(
+                ("\n" + "%11s" * 9)
+                % ("Epoch", "GPU_mem", "Loss", "AvgLoss", "L_shell", "L_m", "L_h", "L_con", "r_m")
+            )
 
         for i, batch in pbar:
             optimizer.zero_grad()
@@ -267,8 +273,6 @@ def train(opt):
                     writer.add_scalar("train/loss_human_shell", loss_h.item(), current_step)
                     writer.add_scalar("train/loss_con", loss_con.item(), current_step)
 
-        estimate_and_broadcast_geometry(model, fabric, geometry_loader)
-
         with torch.no_grad():
             model.eval()
             val_loss = 0.0
@@ -312,11 +316,12 @@ def train(opt):
             all_labels = []
             for rank_idx, length in enumerate(gathered_label_lengths.tolist()):
                 all_labels.extend(gathered_labels[rank_idx, :length].cpu().tolist())
+
             all_distances = np.asarray(all_distances)
             all_labels = np.asarray(all_labels)
-
             threshold = select_threshold(all_labels, all_distances)
             threshold_metrics = evaluate_threshold(all_labels, all_distances, threshold)
+
             try:
                 auc = roc_auc_score(all_labels, all_distances)
             except ValueError:

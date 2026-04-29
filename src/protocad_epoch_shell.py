@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from src.text_embedding import TextEmbeddingModel
 
@@ -31,11 +32,17 @@ class ProtoCADEpochShellModel(nn.Module):
         return self.model(encoded_batch)
 
     @torch.no_grad()
-    def estimate_epoch_geometry(self, train_loader, device):
+    def estimate_epoch_geometry(self, train_loader, device, show_progress=False):
+        was_training = self.training
+        self.eval()
         machine_embeddings = []
         human_embeddings = []
 
-        for encoded_batch, label, _, _ in train_loader:
+        iterator = train_loader
+        if show_progress:
+            iterator = tqdm(train_loader, total=len(train_loader), desc="Estimate geometry")
+
+        for encoded_batch, label, _, _ in iterator:
             encoded_batch = {k: v.to(device) for k, v in encoded_batch.items()}
             label = label.to(device)
             embeddings = self.encode(encoded_batch)
@@ -55,9 +62,7 @@ class ProtoCADEpochShellModel(nn.Module):
         machine_embeddings = torch.cat(machine_embeddings, dim=0)
         human_embeddings = torch.cat(human_embeddings, dim=0)
 
-        center = machine_embeddings.sum(dim=0)
-        center = F.normalize(center, dim=0)
-
+        center = F.normalize(machine_embeddings.sum(dim=0), dim=0)
         machine_distances = torch.norm(machine_embeddings - center.unsqueeze(0), dim=1)
         human_distances = torch.norm(human_embeddings - center.unsqueeze(0), dim=1)
 
@@ -67,6 +72,9 @@ class ProtoCADEpochShellModel(nn.Module):
         self.center.copy_(center)
         self.radius_m.copy_(radius_m)
         self.radius_h.copy_(radius_h)
+
+        if was_training:
+            self.train()
 
     def _shell_loss(self, embeddings, labels):
         center = self.center.unsqueeze(0).to(embeddings.device)
@@ -91,16 +99,12 @@ class ProtoCADEpochShellModel(nn.Module):
 
         pos_logits = torch.matmul(positives, anchor) / self.temperature
         neg_logits = torch.matmul(negatives, anchor) / self.temperature
-        all_logits = torch.cat([pos_logits, neg_logits], dim=0)
-        denominator = torch.logsumexp(all_logits, dim=0)
+        denominator = torch.logsumexp(torch.cat([pos_logits, neg_logits], dim=0), dim=0)
         return -(pos_logits - denominator).mean()
 
     def _contrastive_loss(self, embeddings, labels):
-        machine_mask = labels == 0
-        human_mask = labels == 1
-
-        machine_embeddings = embeddings[machine_mask]
-        human_embeddings = embeddings[human_mask]
+        machine_embeddings = embeddings[labels == 0]
+        human_embeddings = embeddings[labels == 1]
         prototype = self.center.to(embeddings.device).unsqueeze(0)
 
         if machine_embeddings.size(0) == 0 or human_embeddings.size(0) == 0:
@@ -123,6 +127,6 @@ class ProtoCADEpochShellModel(nn.Module):
 
         loss_shell, loss_m, loss_h = self._shell_loss(embeddings, labels)
         loss_con = self._contrastive_loss(embeddings, labels)
-        loss = self.lambda_shell * loss_shell + self.lambda_con * loss_con
+        loss = self.lambda_con * loss_con + self.lambda_shell * loss_shell
         distances = torch.norm(embeddings - self.center.to(embeddings.device), dim=1)
         return loss, loss_shell, loss_m, loss_h, loss_con, distances

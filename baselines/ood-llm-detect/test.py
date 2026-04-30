@@ -10,7 +10,6 @@ if str(PROTOCAD_ROOT) not in sys.path:
 
 from matplotlib import pyplot as plt
 from src.index import Indexer
-from utils.utils import compute_metrics
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
@@ -24,7 +23,7 @@ from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.raid_utils import load_raid
 from src.dataset  import PassagesDataset
-from utils.utils import best_threshold_by_f1
+from utils.utils import compute_metrics, best_threshold_by_f1
 from transformers import AutoTokenizer
 from torch.utils.data.dataloader import default_collate
 
@@ -95,7 +94,13 @@ def test(opt):
         model = SimCLR_Classifier_SCL(opt, opt.num_models, fabric)
     else:
         model = SimCLR_Classifier_SCL(opt, fabric)
-    state_dict = torch.load(opt.model_path, map_location="cpu")
+    checkpoint = torch.load(opt.model_path, map_location="cpu")
+    checkpoint_threshold = None
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+        checkpoint_threshold = checkpoint.get('threshold')
+    else:
+        state_dict = checkpoint
     # new_state_dict={}
     # for key in state_dict.keys():
     #     if key.startswith('model.'):
@@ -140,13 +145,18 @@ def test(opt):
         target_tpr = 0.95                               # the TPR you care about
         fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr) # linear interpolation
 
-        threshold, f1 = best_threshold_by_f1(label_np, pred_np)
+        if opt.use_checkpoint_threshold:
+            if checkpoint_threshold is None:
+                raise ValueError("--use_checkpoint_threshold was set, but the checkpoint does not contain a saved threshold.")
+            threshold = checkpoint_threshold
+        else:
+            threshold, f1 = best_threshold_by_f1(label_np, pred_np)
         y_pred = np.where(pred_np>threshold,1,0)
-        acc = accuracy_score(label_np, y_pred)
-        precision = precision_score(label_np, y_pred)
-        recall = recall_score(label_np, y_pred)
-        f1 = f1_score(label_np, y_pred)
-        print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+        human_recall, machine_recall, avg_recall, acc, precision, recall, f1 = compute_metrics(
+            [str(int(x)) for x in label_np],
+            [str(int(x)) for x in y_pred],
+        )
+        print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, HumanRecall:{human_recall}, MachineRecall:{machine_recall}, AvgRecall:{avg_recall}, F1:{f1}, Threshold:{threshold}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -170,7 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--nu", type=float, default=0.1, help="DeepSVDD HP nu")
     parser.add_argument("--C", default=None, help="DeepSVDD HP C")
     parser.add_argument("--objective", type=str, default="one-class", help="one-class,soft-boundary")
-    parser.add_argument("--out_dim", type=int, default=128, help="output dim and dim of c")
+    parser.add_argument("--out_dim", type=int, default=768, help="output dim and dim of c")
     parser.add_argument("--only_classifier", action='store_true',help="only use classifier, no contrastive loss")
 
 
@@ -183,6 +193,7 @@ if __name__ == "__main__":
     parser.add_argument("--attack", type=str, default="none", help="Attack type only for OUTFOX dataset, none,outfox,dipper")
     parser.add_argument("--model_path", type=str, default="/home/heyongxin/detect-LLM-text/DAT/pth/unseen_model/model_best_gpt35.pth",\
                          help="Path to the embedding model checkpoint")
+    parser.add_argument("--use_checkpoint_threshold", action="store_true", help="Use the threshold saved in the checkpoint instead of searching by F1")
     parser.add_argument('--model_name', type=str, default="princeton-nlp/unsup-simcse-roberta-base", help="Model name")
 
     parser.add_argument('--max_K', type=int, default=5, help="Search [1,K] nearest neighbors,choose the best K")

@@ -187,11 +187,11 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
                 # other metrics
                 threshold, f1 = best_threshold_by_f1(label_np, pred_np)
                 y_pred = np.where(pred_np>threshold,1,0)
-                acc = accuracy_score(label_np, y_pred)
-                precision = precision_score(label_np, y_pred)
-                recall = recall_score(label_np, y_pred)
-                f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                human_recall, machine_recall, avg_recall, acc, precision, recall, f1 = compute_metrics(
+                    [str(int(x)) for x in label_np],
+                    [str(int(x)) for x in y_pred],
+                )
+                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, HumanRecall:{human_recall}, MachineRecall:{machine_recall}, AvgRecall:{avg_recall}, F1:{f1}")
 
         torch.cuda.empty_cache()
         fabric.barrier()
@@ -305,22 +305,26 @@ def train(opt):
             # other metrics
             threshold, f1 = best_threshold_by_f1(label_np, pred_np)
             y_pred = np.where(pred_np>threshold,1,0)
-            acc = accuracy_score(label_np, y_pred)
-            precision = precision_score(label_np, y_pred)
-            recall = recall_score(label_np, y_pred)
-            f1 = f1_score(label_np, y_pred)
-            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5},fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            human_recall, machine_recall, avg_recall, acc, precision, recall, f1 = compute_metrics(
+                [str(int(x)) for x in label_np],
+                [str(int(x)) for x in y_pred],
+            )
+            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5},fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, HumanRecall:{human_recall}, MachineRecall:{machine_recall}, AvgRecall:{avg_recall}, F1:{f1}")
 
             # Save test results
             test_results = {
-                'auc': roc_auc,
-                'acc': acc,
-                'pr_auc': pr_auc, 
-                'tpr_at_fpr_5': tpr_at_fpr_5,
-                'fpr_at_tpr_95': fpr_at_tpr_95,
-                'precision': precision,
-                'recall': recall,
-                'f1': f1
+                'auc': float(roc_auc),
+                'acc': float(acc),
+                'pr_auc': float(pr_auc), 
+                'tpr_at_fpr_5': float(tpr_at_fpr_5),
+                'fpr_at_tpr_95': float(fpr_at_tpr_95),
+                'precision': float(precision),
+                'recall': float(recall),
+                'human_recall': float(human_recall),
+                'machine_recall': float(machine_recall),
+                'avg_recall': float(avg_recall),
+                'f1': float(f1),
+                'threshold': float(threshold),
             }
             test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
             with open(test_results_path, 'w') as f: 
@@ -329,7 +333,17 @@ def train(opt):
             # Save model predictions
             preds_models[model_set_idx] = pred_np
             
-            torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_hrn.pth"))
+            checkpoint = {
+                'model_state_dict': model.state_dict(),
+                'threshold': float(threshold),
+                'roc_auc': float(roc_auc),
+                'pr_auc': float(pr_auc),
+                'human_recall': float(human_recall),
+                'machine_recall': float(machine_recall),
+                'avg_recall': float(avg_recall),
+                'f1': float(f1),
+            }
+            torch.save(checkpoint, os.path.join(opt.savedir, f"model_classifier_hrn.pth"))
             print("Model saved at: ", os.path.join(opt.savedir, f"model_clssifier_hrn.pth")) 
     
     torch.cuda.empty_cache()

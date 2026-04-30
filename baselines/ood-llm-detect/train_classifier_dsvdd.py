@@ -282,15 +282,18 @@ def train(opt):
 
                 threshold, f1 = best_threshold_by_f1(label_np, pred_np)
                 y_pred = np.where(pred_np>threshold,1,0)
-                acc = accuracy_score(label_np, y_pred)
-                precision = precision_score(label_np, y_pred)
-                recall = recall_score(label_np, y_pred)
-                f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                human_recall, machine_recall, avg_recall, acc, precision, recall, f1 = compute_metrics(
+                    [str(int(x)) for x in label_np],
+                    [str(int(x)) for x in y_pred],
+                )
+                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, HumanRecall:{human_recall}, MachineRecall:{machine_recall}, AvgRecall:{avg_recall}, F1:{f1}")
                 writer.add_scalar('val_auc', roc_auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)
                 writer.add_scalar('val_recall', recall, epoch)
+                writer.add_scalar('val_human_recall', human_recall, epoch)
+                writer.add_scalar('val_machine_recall', machine_recall, epoch)
+                writer.add_scalar('val_avg_recall', avg_recall, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
                 writer.add_scalar('val_threshold', threshold, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
@@ -302,26 +305,50 @@ def train(opt):
         if fabric.global_rank == 0:
             if roc_auc>max_auc:
                 max_auc=roc_auc
-                torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
+                checkpoint = {
+                    'model_state_dict': model.state_dict(),
+                    'threshold': float(threshold),
+                    'roc_auc': float(roc_auc),
+                    'pr_auc': float(pr_auc),
+                    'human_recall': float(human_recall),
+                    'machine_recall': float(machine_recall),
+                    'avg_recall': float(avg_recall),
+                    'f1': float(f1),
+                }
+                torch.save(checkpoint, os.path.join(opt.savedir,'model_classifier_best.pth'))
                 print('Save model to {}'.format(os.path.join(opt.savedir,'model_classifier_best.pth'.format(epoch))), flush=True)
                 # save the best test result
                 test_results = {
-                    'epoch': epoch,
-                    'roc_auc': roc_auc,
-                    'pr_auc': pr_auc,
-                    'tpr_at_fpr_5': tpr_at_fpr_5,
-                    'fpr_at_tpr_95': fpr_at_tpr_95,
-                    'acc': acc,
-                    'precision': precision,
-                    'recall': recall,
-                    'f1': f1,
+                    'epoch': int(epoch),
+                    'roc_auc': float(roc_auc),
+                    'pr_auc': float(pr_auc),
+                    'tpr_at_fpr_5': float(tpr_at_fpr_5),
+                    'fpr_at_tpr_95': float(fpr_at_tpr_95),
+                    'acc': float(acc),
+                    'precision': float(precision),
+                    'recall': float(recall),
+                    'human_recall': float(human_recall),
+                    'machine_recall': float(machine_recall),
+                    'avg_recall': float(avg_recall),
+                    'f1': float(f1),
+                    'threshold': float(threshold),
                 }
                 test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
                 with open(test_results_path, 'w') as f:
                     json.dump(test_results, f, indent=4)
                 print(f"Best test results saved to {test_results_path}")
             
-            torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_last.pth'))
+            checkpoint = {
+                'model_state_dict': model.state_dict(),
+                'threshold': float(threshold),
+                'roc_auc': float(roc_auc),
+                'pr_auc': float(pr_auc),
+                'human_recall': float(human_recall),
+                'machine_recall': float(machine_recall),
+                'avg_recall': float(avg_recall),
+                'f1': float(f1),
+            }
+            torch.save(checkpoint, os.path.join(opt.savedir,'model_classifier_last.pth'))
             print('Save model to {}'.format(os.path.join(opt.savedir,'model_classifier_last.pth'.format(epoch))), flush=True)        
         
         fabric.barrier()

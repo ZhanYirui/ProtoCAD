@@ -27,6 +27,7 @@ from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
+from sklearn.metrics import roc_auc_score
 
 def process_top_ids_and_scores(top_ids_and_scores, label_dict):
     preds=[]
@@ -232,7 +233,7 @@ def train(opt):
             model.eval()
             pbar=enumerate(val_dataloder)
             if fabric.global_rank == 0 :
-                test_embeddings,test_labels = [],[]           
+                test_embeddings,test_labels,classifier_scores = [],[],[]
                 pbar = tqdm(pbar, total=len(val_dataloder))
                 print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
 
@@ -255,6 +256,7 @@ def train(opt):
                 if fabric.global_rank == 0 :
                     test_embeddings.append(k_out.cpu())
                     test_labels.extend(k_outlabel.cpu().tolist())
+                    classifier_scores.extend(torch.softmax(out, dim=1)[:, 1].detach().cpu().tolist())
                     pbar.set_description(
                         ('%11s' * 2 + '%11.4g' * 3) %
                         (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
@@ -299,7 +301,11 @@ def train(opt):
                 writer.add_scalar('val/val_avg_recall', avg_rec, epoch)
             else:
                 human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds)
-                print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                try:
+                    auroc = roc_auc_score([int(label) for label in test_labels], classifier_scores)
+                except ValueError:
+                    auroc = float('nan')
+                print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUROC:{auroc}")
                 writer.add_scalar('val/val_loss', test_loss, epoch)
                 writer.add_scalar('val/val_acc', acc, epoch)
                 writer.add_scalar('val/val_precision', precision, epoch)
@@ -308,6 +314,7 @@ def train(opt):
                 writer.add_scalar('val/val_human_rec', human_rec, epoch)
                 writer.add_scalar('val/val_machine_rec', machine_rec, epoch)
                 writer.add_scalar('val/val_avg_rec', avg_rec, epoch)
+                writer.add_scalar('val/val_auroc', auroc, epoch)
 
         if fabric.global_rank == 0:
             writer.add_scalar('val/acc_classifier', right_num/tot_num, epoch)
